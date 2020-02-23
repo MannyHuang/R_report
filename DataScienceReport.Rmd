@@ -1,0 +1,180 @@
+---
+title: "数据科学统计基础期末报告"
+subtitle: Kalman Filter分析美股指数与Monte Carlo预测阿里巴巴股价
+author:
+- 统计学院统计学
+- 218020208002
+- 黄曼莉
+documentclass: ctexart
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+classoption: "hyperref,"
+---
+# 引言
+股票价格指数是度量和反映股票市场总体价格水平及其变动趋势而编制的股价统计相对数。可通过股指走势判断市场属于牛市还是熊市亦或是横盘整理，有助于规划合理的选股策略。Dow Jones工业平均指数、S&P500指数和Nasdaq是美股最重要的三个指数。本文欲研究是否应该购买或加持阿里巴巴股票。将通过Kalman Filter模型预测美股指数是否持续走高，再由Monte Carlo模型预测下一季度阿里巴巴股价，综合判断2020年是否应该加持该股。
+
+# 利用Kalman Filter分析美国股票指数
+本文选取了2019年的S&P500指数以及Nasdaq指数来进行分析，是因为S&P500属于股票综合指数，是目前公认的美国市场大盘基准指数。Nasdaq指数涵盖的科技概念股居多，对当下互联网科技发展的总体趋势有较强的代表性。现利用美股市场的两种测量方法估计股票市场背后那只“看不见的手”，并对下一时期进行预测。
+首先，利用quantmod包从Yahoo上下载并存储S&P500与Nasdaq在2019年全年的价格指数，由于两个指数并不是同一数量级，因此对其做标准化处理后将其中的价格与日期两列存为相应的Dataframe。
+```{r message=FALSE, warning=FALSE, comment=NA}
+library(quantmod)
+library(xts)
+library(matlib)
+library(ggplot2)
+
+# download USA prices from Yahoo
+nasdaq <- getSymbols("^IXIC", from="2019-01-01",
+                     to="2019-12-31", auto.assign = F)
+sp500 <- getSymbols("^GSPC", from="2019-01-01", 
+                    to="2019-12-31", auto.assign = F)
+nasdaq_data <- data.frame(date=index(nasdaq), 
+                          price=scale(as.numeric(Ad(nasdaq))))
+sp500_data <- data.frame(date=index(sp500), 
+                         price=scale(as.numeric(Ad(sp500))))
+```
+接着，计算S&P500与Nasdaq价格指数的协方差矩阵，存入R中。对初始参数做出假设并定义重要变量。并假定Xhat的初始值是标准正态分布的随机取值。
+```{r, comment=NA}
+# initial parameters
+n <- length(nasdaq_data$price)
+Q <- 0.05 # supposed
+r11 <- var(nasdaq_data$price)
+r22 <- var(sp500_data$price)
+r12 <- r21 <- cov(nasdaq_data$price, sp500_data$price)
+
+A <- matrix(c(1, 1), 2, 1)
+R <- matrix(c(r11, r12, r21, r22), 2, 2)
+Xhat <- matrix(NA, n, 1)   # a posterior estimate of x
+P <- matrix(NA, n, 1)   # a posterior error estimate
+Xhatminus <- matrix(NA, n, 1)   # a priori estimate of x
+Pminus <- matrix(NA, n, 1)    # a priori error estimate
+K <- matrix(NA, n, 2)   # gain or blending factor
+Y <- matrix(c(nasdaq_data$price, sp500_data$price), n, 2)
+
+# initial guesses
+Xhat[1, ] <- X0 <-rnorm(1, 0, 1)
+P[1, ] <- P0 <- 1.0
+
+```
+最后，利用Kalman Filter模型中的观测方程$Y=AX_t+V_t$与状态方程$X_t=X_{t-1}+W_t$进行迭代，估计值存入Xhat变量中。
+```{r, comment=NA}  
+# step one: 
+for(i in 2: n) {
+  # time update
+  Xhat[]
+  Xhatminus[i, ] <- Xhat[i-1, ]
+  Pminus[i, ] <- P[i-1, ] + Q
+  
+  # measurement update
+  K[i, ] <- Pminus[i, ]%*%t(A)%*%inv(A%*%Pminus[i, ]%*%t(A) + R)
+  Xhat[i, ] <- Xhatminus[i, ]+K[i, ]%*%(Y[i, ]-A%*%Xhatminus[i,])
+  P[i, ] <- (1-K[i, ]%*%A)*Pminus[i, ]
+}
+```
+得到估计值后，汇总S&P500，Nasdaq以及估计的价格指数于统一表格，且绘制趋势图。
+```{r, comment=NA}
+all_data <- rbind(data.frame(x=index(nasdaq), y=nasdaq_data$price, 
+                  classification=as.factor("nasdaq")),
+                  data.frame(x=index(nasdaq), y=sp500_data$price,
+                  classification=as.factor("sp500")),
+                  data.frame(x=index(nasdaq), y =Xhat, 
+                  classification=as.factor("estimate_index")))
+  
+ggplot(all_data, aes(x, y)) +
+  geom_line(aes(color=classification, linetype=classification))+ 
+  labs(y="index", title="US Stock Index") +
+  theme_classic() 
+```
+```{r}
+summary(nasdaq_data)
+summary(sp500_data)
+```
+再结合nasdaq_data表格得知，Nasdaq指数由1月2日的6665.94上升到12月3日的8945.99，增长了34.2%，尽管在5月至8月期间上下波动剧烈，但降幅最大的点也没有低于初始点，并且于10月后再度呈现明显的上升趋势。查询sp500_data表格得知，S&P500指数在2019年全年亦呈现出相对平缓的上升趋势，并且上下波幅较小，全年增长率为28.3%。
+由上图可以看出，两种指数与估计指数的上升趋势趋于一致，Nasdaq的波动浮动最大，S&P500波动幅度最小，估计指数波动幅度介于其中。
+
+# 阿里巴巴股价走势及其与股指的相关性
+同样的方法，下载并储存阿里巴巴2019年全年的股票价格数据，进行标准化处理后绘制其趋势图。
+```{r, comment=NA}
+alibaba <- getSymbols("BABA", from="2019-01-01", 
+                      to="2019-12-31", auto.assign=F)
+alibaba_data <- data.frame(date=index(alibaba), 
+                           price=scale(as.numeric(Ad(alibaba))))
+
+all_data <- rbind(data.frame(x=index(nasdaq), y=nasdaq_data$price, 
+                  classification=as.factor("nasdaq")),
+                  data.frame(x=index(nasdaq), y=sp500_data$price, 
+                  classification=as.factor("sp500")),
+                  data.frame(x=index(nasdaq), y=Xhat, 
+                  classification=as.factor("estimate_price")),
+                  data.frame(x=index(nasdaq), y=alibaba_data$price, 
+                  classification = as.factor("alibaba")))
+
+ggplot(all_data, aes(x, y)) +
+  geom_line(aes(color = classification, linetype = classification))+ 
+  labs(x="date", y="price", title="US Stock Index $ Alibaba") +
+  theme_classic() 
+```
+由上图看出，紫色折线代表的阿里巴巴股价上下波动非常剧烈，由136.7增长到212.91每股，增长了55.7%，增长率大于所有的指数，这一点可以从图中体现出来，同时这也符合股价指数是所涵盖股票价格加权平均数的逻辑。仅从上图不能看出阿里巴巴股价与Nasdaq，S&P500还是Kalman Filter的估计指数中的哪一个最契合。接下里进行相关性分析。
+```{r, comment=NA}
+all_data <- data.frame(nasdaq = nasdaq_data$price, 
+                       sp500 = sp500_data$price, 
+                       estimate_index = Xhat, 
+                       alibaba = alibaba_data$price)
+cor(all_data)
+```
+从以上相关系数可以看出，S&P500与Nasdaq两个指数之间的相关性高达0.99，而估计指数与Nasdaq和S&P500之间的相关系数同样很高，但不及后两者之间。
+阿里巴巴股价与三种指数的相关系数虽然不及指数之间相关系数高，但相比其他经济变量，与股指的相关性算比较高的，其中，与估计的指数相系数为0.69。
+因此，仅就相关性而言，可以运用Kalman Filter模型预测下一期指数，然后根据预测指数的走势判断阿里巴巴股价的走势.
+```{r, comment=NA}
+index_forecast <- Xhatminus[n, ]
+print(index_forecast)
+summary(Xhat)
+```
+下一期预测指数约为2.05，略低于最大值2.06，由此判断无意外情况下，美股市场仍有上涨的势头。
+
+# 运用Monte Carlo模型预测阿里巴巴股价
+接下来使用Monte Carlo模拟法进行在险价值的估算，以阿里巴巴2019年12月30日的股票价格为基础，预测最差情形下2020年第一季度也就是63个交易日后，阿里巴巴股价。所谓最差情形，即是股价超出这一价格的可能性为99%。
+再结合Geimetric Brownian motion(GBM)这一标准的股价预测模型，即$S_{t+1}=S_t*(1+\mu{\Delta}t+\sigma{\epsilon}\sqrt{{\Delta}t})$。$S_t$为阿里巴巴2019年最后一个交易日的股价，$\mu$为drift，假定为10%， $\sigma$为volatility，假定为20%，$\epsilon$为0与1之间的随机数。
+进行一万次的模拟，得到结果。
+```{r, comment=NA}
+# calculate stock price after n periods using standard stock price model
+stock_forecast <- function(stock_price, n, mu, sigma){
+  delta_t <- 1/n # one period
+  for (i in seq(n)){
+    epsilon <- runif(n=1, min=0, max=1) # random generated number
+    # calculate stock price (using quantile function of normal distribution)
+    stock_price <- stock_price * (1 + qnorm(epsilon, 
+                                            mu * delta_t, 
+                                            sigma* sqrt(delta_t)))
+  }
+  return(stock_price)
+}
+
+# parameters
+simulations <- 10000 # number of MC simulations
+first_season <- 63 # the following trading days to predict
+stock_price <- as.numeric(Ad(alibaba))[n]
+mu <- .1 # drift 10%
+sigma <- .2 # volatility 20%
+ 
+# Monte Carlo simulations
+set.seed(42) # for reproducibility
+stock_prices <- c()
+for (i in seq(simulations)){
+  stock_prices <- c(stock_prices,
+                    stock_forecast(stock_price=stock_price, 
+                                   n=first_season, 
+                                   mu=mu, 
+                                   sigma=sigma))
+}
+quantile(stock_prices, c(.01, .05, 0.5))
+print(as.numeric(Ad(alibaba))[n])
+hist(stock_prices, col="pink", border="grey")
+abline(v=mean(stock_prices), col="darkblue")
+```
+可以看出，99%的情形下股票价格高于144.76，95%的情形下高于167.51；一个季度后股价集中在230.58上下，高于2019年年底的212.91，故应买入。
+
+# 结论
+运用Kalman Filter模型可以预测下一期美股指数的高低，运用Monte Carlo模型可以预测下一季度阿里巴巴股价的风险价值。结合二者，可以知道接下来的一段时间，如果美国金融市场没有重大意外情况发生，那么很大可能性美股大盘还将继续上行，阿里巴巴股价也会继续上涨，从美股基本面以及股价预测两个方面看，都应继续持有或者购买阿里巴巴股票。
