@@ -2,9 +2,6 @@
 title: "数据科学统计基础期末报告"
 subtitle: Kalman Filter分析美股指数与Monte Carlo预测阿里巴巴股价
 author:
-- 统计学院统计学
-- 218020208002
-- 黄曼莉
 documentclass: ctexart
 output:
   rticles::ctex:
